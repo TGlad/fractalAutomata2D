@@ -23,7 +23,14 @@ public:
   }
   inline bool isSet(int x, int y)
   {
-    int *ptr = data + x+1 + (y+1)*width;
+    int *ptr = data + x + 1 + (y + 1)*width;
+    return (*ptr & 128) != 0;
+  }
+  inline bool isSet(int x, int y, bool centre)
+  {
+    if (x == -1 || y == -1 || x == width - 2 || y == height - 2)
+      return centre;
+    int *ptr = data + x + 1 + (y + 1)*width;
     return (*ptr & 128) != 0;
   }
   void draw();

@@ -1,6 +1,7 @@
 ﻿#pragma once
 #include "basics.h"
 #include "View.h"
+#include "Screen.h"
 
 class Core
 {

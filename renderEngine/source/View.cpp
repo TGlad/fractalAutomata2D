@@ -60,6 +60,8 @@ void View::recordToScreen(Screen* screen)
   }
   else
   {
+    glRasterPos2i(0, 512);
+    evolvers[0]->drawMask();
     glRasterPos2i(256, 512);
     evolvers[0]->draw();
     glRasterPos2i(512, 512);
@@ -74,6 +76,15 @@ void View::recordToScreen(Screen* screen)
     glRasterPos2i(736, 512);
     evolvers[0]->bitmaps[4]->generateTexture();
     evolvers[0]->bitmaps[4]->draw();
+    glRasterPos2i(752, 512);
+    evolvers[0]->bitmaps[3]->generateTexture();
+    evolvers[0]->bitmaps[3]->draw();
+    glRasterPos2i(760, 512);
+    evolvers[0]->bitmaps[2]->generateTexture();
+    evolvers[0]->bitmaps[2]->draw();
+    glRasterPos2i(764, 512);
+    evolvers[0]->bitmaps[1]->generateTexture();
+    evolvers[0]->bitmaps[1]->draw();
     if (g_type == 7 || g_type == 8)
     {
       glRasterPos2i(512, 640);
@@ -121,16 +132,36 @@ void View::setMaster(int m)
   }
 }
 
-void View::resetFromHead()
+void View::resetFromHead(char c)
 {
   if (g_type != evolvers[0]->type)
     printf("Now using type %d\n", evolvers[0]->type);
 
   g_type = evolvers[0]->type;
+  bool starts[16];
+  bool o[] = { 0, 0, 0, 0,
+    0, 1, 1, 0,
+    0, 1, 1, 0,
+    0, 0, 0, 0 };
+  bool l[] = { 0, 0, 0, 0,
+    1, 1, 1, 1,
+    1, 0, 0, 0,
+    0, 0, 0, 0 };
+  if (c == 0)
+    for (int j = 0; j < 16; j++)
+      starts[j] = rand() % 2;
+  else if (c == 'o')
+    for (int j = 0; j < 16; j++)
+      starts[j] = o[j];
+  else if (c == 'l')
+    for (int j = 0; j < 16; j++)
+      starts[j] = l[j];
+
   for (int i = 0; i<numEvolvers; i++)
   {
-    evolvers[i]->randomiseMasks(*evolvers[0], 50.0f); // to swap data with probability 50% is the same as setting it, it doesn't matter what it was before
-    evolvers[i]->randomise();
+    if (c == 0)
+      evolvers[i]->randomiseMasks(*evolvers[0], 50.0f); // to swap data with probability 50% is the same as setting it, it doesn't matter what it was before
+    evolvers[i]->randomise(starts);
     evolvers[i]->frame = 0; 
   }
 }
@@ -138,7 +169,7 @@ void View::resetFromHead()
 
 void View::load()
 {
-  char ext[5];
+  char ext[8];
   sprintf_s(ext, ".ev%d", g_type);
   printf("Type name of %s file to load, without extension: ", ext);
   char key[80];
@@ -168,7 +199,7 @@ void View::load()
 
 void View::save()
 {
-  char ext[5];
+  char ext[8];
   sprintf_s(ext, ".ev%d", g_type);
   printf("Type name of %s file to save, without extension: ", ext);
   char key[80];
@@ -208,7 +239,13 @@ void View::update()
   {
     switch(_getch())
     {
-    case('l'):
+    case('k') :
+      resetFromHead('l');
+      break;
+    case('o') :
+      resetFromHead('o');
+      break;
+    case('l') :
       load();
       break;
     case('s'):
@@ -273,8 +310,20 @@ void View::update()
       evolvers[0]->type = 7;
       resetFromHead();
       break;
-    case('8'):
+    case('8') :
       evolvers[0]->type = 8;
+      resetFromHead();
+      break;
+    case('9') :
+      evolvers[0]->type = 9;
+      resetFromHead();
+      break;
+    case('0') :
+      evolvers[0]->type = 10;
+      resetFromHead();
+      break;
+    case('-') :
+      evolvers[0]->type = 11;
       resetFromHead();
       break;
     default:

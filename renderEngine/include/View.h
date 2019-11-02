@@ -12,7 +12,7 @@ public:
   void recordToScreen(Screen* screen);
   void update();
   void setMaster(int m);
-  void resetFromHead();
+  void resetFromHead(char c = 0);
   void load();
   void save();
   

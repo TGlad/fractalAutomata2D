@@ -19,6 +19,21 @@ Evolver::Evolver(int depth)
   reset();
 }
 
+void Evolver::checkSiblings()
+{
+  if (type == 10) // temporal coherence
+  {
+    int count = 0;
+    for (int i = 0; i < 89; i++)
+      count += siblingMasks[i] ? 1 : 0;
+    if (count >= 45)
+    {
+      for (int i = 0; i < 89; i++)
+        siblingMasks[i] = !siblingMasks[i];
+      count = 89 - count;
+    }
+  }
+}
 void Evolver::reset()
 {
   frame = 0;
@@ -26,6 +41,7 @@ void Evolver::reset()
   // type 3
   for (int i = 0; i<1<<9; i++)
     siblingMasks[i] = random()>0;
+  checkSiblings();
   for (int i = 0; i<1<<4; i++)
     parentMasks[i] = random()>0;
   for (int i = 0; i<1<<4; i++)
@@ -74,6 +90,7 @@ void Evolver::randomiseMasks(const Evolver& master, float percentVariation)
     if (random() > threshold)
       siblingMasks[i] = !siblingMasks[i];
   }
+  checkSiblings();
   for (int i = 0; i<1<<4; i++)
   {
     parentMasks[i] = master.parentMasks[i];
@@ -114,17 +131,24 @@ void Evolver::randomiseMasks(const Evolver& master, float percentVariation)
   }
 }
 
-void Evolver::randomise()
+void Evolver::randomise(bool *starts)
 {
   // initialise the bitmaps to some random image:
   // This is a recursive process, generating the data procedurally as we go deeper in detail level.
   for (int level = 2; level<=depth; level++)
   {
     int size = 1<<level;
+    if (level == 2 && starts)
+    {
+      int c = 0;
+      for (int i = 0; i<size; i++)
+        for (int j = 0; j<size; j++)
+          bitmaps[level]->setPixel(i, j, starts[c++] ? 128 : 0);
+      continue;
+    }
     for (int i = 0; i<size; i++)
       for (int j = 0; j<size; j++)
         bitmaps[level]->setPixel(i, j, random() > (type == 7 ? 0.0f : 0.5f) ? 128 : 0);
-//        bitmapDuals[level]->setPixel(i, j, random() > 0.5f ? 128 : 0); // only need to do this is we have a dual system not just dependent on parents
   }
 }
 
@@ -169,9 +193,21 @@ void Evolver::read(FILE* fp)
     for (int i = 0; i<1<<6; i++)
       fread(&octagonalMasks[i], sizeof(bool), 1, fp);
     break;
-  case(8):
-    for (int i = 0; i<1<<7; i++)
+  case(8) :
+    for (int i = 0; i<1 << 7; i++)
       fread(&octagonalMasks[i], sizeof(bool), 1, fp);
+    break;
+  case(9) :
+    for (int i = 0; i<1 << 4; i++)
+      fread(&parentMasks[i], sizeof(bool), 1, fp);
+    break;
+  case(10) :
+    for (int i = 0; i<89; i++)
+      fread(&siblingMasks[i], sizeof(bool), 1, fp);
+    break;
+  case(11) :
+    for (int i = 0; i<100; i++)
+      fread(&siblingMasks[i], sizeof(bool), 1, fp);
     break;
   default:
     return;
@@ -220,9 +256,21 @@ void Evolver::write(FILE* fp)
     for (int i = 0; i<1<<6; i++)
       fwrite(&octagonalMasks[i], sizeof(bool), 1, fp);
     break;
-  case(8):
-    for (int i = 0; i<1<<7; i++)
+  case(8) :
+    for (int i = 0; i<1 << 7; i++)
       fwrite(&octagonalMasks[i], sizeof(bool), 1, fp);
+    break;
+  case(9) :
+    for (int i = 0; i<1 << 4; i++)
+      fwrite(&parentMasks[i], sizeof(bool), 1, fp);
+    break;
+  case(10) :
+    for (int i = 0; i<89; i++)
+      fwrite(&siblingMasks[i], sizeof(bool), 1, fp);
+    break;
+  case(11) :
+    for (int i = 0; i<100; i++)
+      fwrite(&siblingMasks[i], sizeof(bool), 1, fp);
     break;
   default:
     break;
@@ -310,6 +358,12 @@ void Evolver::draw()
   bitmaps[depth]->draw();
 }
 
+void Evolver::drawMask()
+{
+  int level = 8;
+  bitmapDuals[level]->generateTexture();
+  bitmapDuals[level]->draw();
+}
 bool Evolver::getNewValue(int level, int X, int Y)
 {
   int dirX = X%2 ? 1 : -1;
@@ -408,7 +462,7 @@ bool Evolver::checkAddRemove(int level, int X, int Y, bool addRemove[6][3][3], i
 bool Evolver::getNewValueParentsOnly(int level, int X, int Y)
 {
   ASSERT(level > 0);
-  if (bitmaps[level-1]->isSet(X/2, Y/2)) // then prepare to remove
+  if (bitmaps[level - 1]->isSet(X / 2, Y / 2)) // then prepare to remove
   {
     for (int i = 0; i<6; i++)
       if (checkAddRemove(level, X, Y, parentsRemove, i, false) || checkAddRemove(level, X, Y, parentsRemove, i, true))
@@ -422,6 +476,35 @@ bool Evolver::getNewValueParentsOnly(int level, int X, int Y)
         return true;
     return false;
   }
+}
+
+bool Evolver::getNewValue4Parents(int level, int X, int Y)
+{
+  ASSERT(level > 0);
+  int dirX = X % 2 ? 1 : -1;
+  int dirY = Y % 2 ? 1 : -1;
+
+  int xx = X / 2;
+  int pattern1 = 0;
+  int pattern2 = 0;
+  if (level > 0)
+  {
+    for (int x = 0; x<2; x++)
+    {
+      int yy = Y / 2;
+      for (int y = 0; y<2; y++)
+      {
+        if (bitmaps[level - 1]->isSet(xx, yy))
+        {
+          pattern1 += 1 << (x + 2 * y);
+          pattern2 += 1 << (y + 2 * x);
+        }
+        yy += dirY;
+      }
+      xx += dirX;
+    }
+  }
+  return parentMasks[min(pattern1, pattern2)]; // the min ensures we remain symettric
 }
 
 bool Evolver::getNewValueParentsOctagonal2(Image* image, int X, int Y, bool flip, bool extended, int level)
@@ -493,10 +576,10 @@ bool Evolver::getNewValueParentsOctagonal2(Image* image, int X, int Y, bool flip
 
 bool Evolver::getNewValue2(int level, int X, int Y)
 {
-  int dirX = X%2 ? 1 : -1;
-  int dirY = Y%2 ? 1 : -1;
+  int dirX = X % 2 ? 1 : -1;
+  int dirY = Y % 2 ? 1 : -1;
 
-  int xx = X-dirX;
+  int xx = X - dirX;
   // First, num neighbours
   int pattern1 = 0;
   int pattern2 = 0;
@@ -504,12 +587,12 @@ bool Evolver::getNewValue2(int level, int X, int Y)
   bool centreSet = false;
   for (int x = 0; x<3; x++)
   {
-    int yy = Y-dirY;
+    int yy = Y - dirY;
     for (int y = 0; y<3; y++)
     {
       if (bitmaps[level]->isSet(xx, yy))
       {
-        if (x==1 && y==1)
+        if (x == 1 && y == 1)
           centreSet = true;
         else
           numNeighbours++;
@@ -519,27 +602,222 @@ bool Evolver::getNewValue2(int level, int X, int Y)
     xx += dirX;
   }
 
-  xx = X/2;
-  bool hasParent = level > 0 ? bitmaps[level-1]->isSet(X/2, Y/2) : 0;
+  xx = X / 2;
+  bool hasParent = level > 0 ? bitmaps[level - 1]->isSet(X / 2, Y / 2) : 0;
 
   int numChildren = 0;
-  xx = X*2 + 1 - X%2;
-  if (level+1 <= depth)
+  xx = X * 2 + 1 - X % 2;
+  if (level + 1 <= depth)
   {
     for (int x = 0; x<2; x++)
     {
-      int yy = Y*2 + 1 - Y%2;
+      int yy = Y * 2 + 1 - Y % 2;
       for (int y = 0; y<2; y++)
       {
-        if (bitmaps[level+1]->isSet(xx, yy))
+        if (bitmaps[level + 1]->isSet(xx, yy))
           numChildren++;
         yy += dirY;
       }
       xx += dirX;
     }
   }
-  return siblingMasks[((numNeighbours + numChildren*8)*2 + (int)hasParent) * 2 + (int)centreSet];
+  return siblingMasks[((numNeighbours + numChildren * 8) * 2 + (int)hasParent) * 2 + (int)centreSet];
 }
+bool getVal(int numChildren, int numParents, int numNeighbours, bool centreSet, bool *siblingMasks)
+{
+  int coherence = 1; // even
+  if (numNeighbours > 8 - coherence)
+    return true;
+  if (numNeighbours < coherence)
+    return false;
+  if (numParents == 1 && numChildren > 4 - coherence)
+    return true;
+  if (numParents == 0 && numChildren < coherence)
+    return false;
+
+  int index = numNeighbours + numChildren * 9 + numParents * 45;
+  if (!centreSet)
+    return siblingMasks[index];
+  else
+    return !siblingMasks[89 - index];
+}
+bool getVal4(int numChildren, int numParents, int numNeighbours, bool centreSet, bool *siblingMasks)
+{
+  int coherence = 1; // even
+  if (numNeighbours > 8 - coherence)
+    return true;
+  if (numNeighbours < coherence)
+    return false;
+  if (numParents > 4-coherence && numChildren > 4 - coherence)
+    return true;
+  if (numParents < coherence && numChildren < coherence)
+    return false;
+
+  int index = numNeighbours + numChildren * 9 + numParents * 45;
+  if (!centreSet)
+    return siblingMasks[index];
+  else
+    return !siblingMasks[224 - index];
+}
+
+bool Evolver::getNewValueAllSymmetries(int level, int X, int Y)
+{
+  int dirX = X % 2 ? 1 : -1;
+  int dirY = Y % 2 ? 1 : -1;
+
+  int xx = X - dirX;
+  // First, num neighbours
+  int numNeighbours = 0;
+  bool centreSet = false;
+  for (int x = 0; x<3; x++)
+  {
+    int yy = Y - dirY;
+    for (int y = 0; y<3; y++)
+    {
+      if (bitmaps[level]->isSet(xx, yy, centreSet))
+      {
+        if (x == 1 && y == 1)
+          centreSet = true;
+        else
+          numNeighbours++;
+      }
+      yy += dirY;
+    }
+    xx += dirX;
+  }
+
+  xx = X / 2;
+  bool hasParent = level > 0 ? bitmaps[level - 1]->isSet(X / 2, Y / 2) : centreSet;
+#define ONE_PARENT
+#if defined ONE_PARENT
+  int numParents = hasParent ? 1 : 0;
+#else
+  int numParents = 0;
+  if (level > 0)
+  {
+    for (int x = 0; x<2; x++)
+    {
+      int yy = Y / 2;
+      for (int y = 0; y<2; y++)
+      {
+        if (bitmaps[level - 1]->isSet(xx, yy))
+          numParents++;
+        yy += dirY;
+      }
+      xx += dirX;
+    }
+  }
+#endif
+
+  int numChildren = 0;
+  xx = X * 2 + 1 - X % 2;
+  if (level + 1 <= depth)
+  {
+    for (int x = 0; x < 2; x++)
+    {
+      int yy = Y * 2 + 1 - Y % 2;
+      for (int y = 0; y < 2; y++)
+      {
+        if (bitmaps[level + 1]->isSet(xx, yy))
+          numChildren++;
+        yy += dirY;
+      }
+      xx += dirX;
+    }
+  }
+  else
+    numChildren = centreSet ? 4 : 0; // or 3, 1
+
+  bool answer = getVal(numChildren, numParents, numNeighbours, centreSet, siblingMasks);
+/*  bool answer2 = !getVal(4-numChildren, 1-numParents, 8-numNeighbours, !centreSet, siblingMasks);
+  if (answer != answer2)
+  {
+    std::cout << "didn't work" << std::endl;
+  }*/
+  return answer;
+}
+
+bool Evolver::getNewValueChapter6(int level, int X, int Y)
+{
+  int dirX = X % 2 ? 1 : -1;
+  int dirY = Y % 2 ? 1 : -1;
+
+  int xx = X - dirX;
+  // First, num neighbours
+  int numNeighbours = 0;
+  bool centreSet = false;
+  for (int x = 0; x<3; x++)
+  {
+    int yy = Y - dirY;
+    for (int y = 0; y<3; y++)
+    {
+      if (bitmaps[level]->isSet(xx, yy, centreSet))
+      {
+        if (x == 1 && y == 1)
+          centreSet = true;
+        else
+          numNeighbours++;
+      }
+      yy += dirY;
+    }
+    xx += dirX;
+  }
+
+  xx = X / 2;
+  int numParents = 0;
+  if (level > 0)
+  {
+    for (int x = 0; x < 2; x++)
+    {
+      int yy = Y / 2;
+      for (int y = 0; y < 2; y++)
+      {
+        if (bitmaps[level - 1]->isSet(xx, yy))
+          numParents++;
+        yy += dirY;
+      }
+      xx += dirX;
+    }
+  }
+  else
+    numParents = centreSet ? 4 : 0;
+
+  int numChildren = 0;
+  xx = X * 2 + 1 - X % 2;
+  if (level + 1 <= depth)
+  {
+    for (int x = 0; x < 2; x++)
+    {
+      int yy = Y * 2 + 1 - Y % 2;
+      for (int y = 0; y < 2; y++)
+      {
+        if (bitmaps[level + 1]->isSet(xx, yy))
+          numChildren++;
+        yy += dirY;
+      }
+      xx += dirX;
+    }
+  }
+  else
+    numChildren = centreSet ? 4 : 0; 
+
+  int total = (numChildren + numParents)*9 + numNeighbours;
+  int maxx = max(numParents, numChildren);
+  int minx = min(numParents, numChildren);
+  if (minx >= 3)
+    return true;
+  if (maxx <= 1)
+    return false;
+  if (numNeighbours > 6)
+    return true;
+  if (numNeighbours < 2)
+    return false;
+  if (!centreSet)
+    return siblingMasks[total];
+  else
+    return !siblingMasks[80 - total];
+}
+
 
 bool Evolver::getNewValueSimple(int level, int X, int Y)
 {
@@ -615,9 +893,9 @@ void Evolver::update()
   {
     if (frame == 1)
     {
-      for (int level = 3; level<=depth; level++)
+      for (int level = 3; level <= depth; level++)
       {
-        int size = 1<<level;
+        int size = 1 << level;
         for (int i = 0; i<size; i++)
         {
           for (int j = 0; j<size; j++)
@@ -625,6 +903,32 @@ void Evolver::update()
             int& pixel = bitmaps[level]->pixel(i, j);
             pixel = getNewValueParentsOnly(level, i, j) ? 192 : 0;
           }
+        }
+      }
+    }
+    return;
+  }
+  if (type == 9)
+  {
+    if (frame == 1)
+    {
+      for (int level = 3; level <= depth; level++)
+      {
+        int size = 1 << level;
+        for (int i = 0; i<size; i++)
+        {
+          for (int j = 0; j<size; j++)
+          {
+            int& pixel = bitmaps[level]->pixel(i, j);
+            pixel = getNewValue4Parents(level, i, j) ? 192 : 0;
+          }
+        }
+      }
+      for (int i = 0; i < 256; i++)
+      {
+        for (int j = 0; j < 256; j++)
+        {
+          bitmapDuals[8]->setPixel(i, j, bitmaps[2]->isSet(i / 64, j / 64) ? 128 : 0);
         }
       }
     }
@@ -724,7 +1028,29 @@ void Evolver::update()
       }
     }
   }
-        
+  else if (type == 10)
+  {
+    for (int i = 0; i<size; i++)
+    {
+      for (int j = 0; j<size; j++)
+      {
+        int& pixel = bitmaps[currentLevel]->pixel(i, j);
+        adjustPixel(pixel, getNewValueAllSymmetries(currentLevel, i, j));
+      }
+    }
+  }
+  else if (type == 11)
+  {
+    for (int i = 0; i<size; i++)
+    {
+      for (int j = 0; j<size; j++)
+      {
+        int& pixel = bitmaps[currentLevel]->pixel(i, j);
+        adjustPixel(pixel, getNewValueChapter6(currentLevel, i, j));
+      }
+    }
+  }
+
   for (int i = 0; i<size; i++)
     for (int j = 0; j<size; j++)
       bitmaps[currentLevel]->pixel(i, j) >>= 1;
